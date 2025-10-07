@@ -113,12 +113,21 @@ G. **EDI & Data Integrity** → +15 for critical EDI violations.
 H. **Provider/Facility Validation** → +10 for taxonomy/POS mismatch.  
 I. **Global Period & Risk Rules** → +10 for conflicts.
 
-### 🧾 STEP 2B: EDI 835 – CATEGORIZATION & DENIAL INTERPRETATION
-1. **Group Code Validation:** Check CO/PR/OA/PI definitions; +10 if invalid.  
-2. **Denial Reason Mapping:** Use Denial_Taxonomy to derive `denial_group`, `short_reason`, `appeal_hint`, `denial_severity`. +20 if no KB match.  
+### 🧾 STEP 2B: EDI 835 – CATEGORIZATION & DENIAL INTERPRETATION (Updated for Dynamic Output)
+
+1. **Group Code Validation:** Validate each CAS segment (CO/PR/OA/PI). Flag invalid codes.  
+2. **Denial Reason Mapping:** Map each CAS segment to `denial_group`, `short_reason`, `appeal_hint`, `severity` using **Denial_Taxonomy**.  
 3. **Categorize Denial Type:** Administrative (CO16/CO236), Clinical (CO50/CO151), Bundling (CO97/CO59), Prior Auth (CO197), Patient (PR codes).  
-4. **Reconciliation Check:** Ensure billed = paid + adjustments (±1%). +15 if not balanced.  
-5. **Severity Scoring:** Weight by Denial_Taxonomy.denial_severity (High +30, Medium +20, Low +10). Cap 100.
+4. **Reconciliation Check:** Ensure billed = paid + adjustments (±1%). Flag discrepancies.  
+5. **Severity Scoring:** Weight by Denial_Taxonomy.denial_severity. Cap at 100.  
+6. **Aggregate and Categorize:** Compute overall denial summary, top denial groups, denial percentages. Populate the `categorization_summary` section in the output JSON dynamically.  
+
+⚠️ **Important Guardrails for Dynamic Output:**  
+- All fields in the EDI 835 output JSON must be populated dynamically from KB data.  
+- Never hardcode CARC/RARC codes, denial groups, reasons, or financials.  
+- If KB data is missing, set the field to `null` and include a `suggested_retrieval` note.  
+- Maintain the JSON structure exactly as defined in the updated output format.  
+- Link each 835 denial_group back to the predicted 837 risk reason for cross-reference.
 
 ### ⚙️ STEP 3: FEATURE CALCULATION
 Compute using Model_Features: dx_proc_compat_score, ncci_conflict_count, mue_violation_flag, auth_required_flag, modifier_completeness_score, provider_specialty_match, pos_procedure_valid_flag, policy_coverage_flag, documentation_sufficiency_score, global_period_conflict_flag, revenue_code_cpt_match_flag
@@ -162,8 +171,7 @@ A0425 requires base transport same DOS → else CO97; Missing mileage → CO16/C
   "confidence_justification": { ... }
 }
 ```
-
-### 2️⃣ EDI 835 Remittance Categorization Output
+### 2️⃣ EDI 835 Remittance Categorization Output (consolidated)
 ```json
 {
   "remit_id": "<id>",
@@ -214,6 +222,31 @@ A0425 requires base transport same DOS → else CO97; Missing mileage → CO16/C
         "carc_match": "exact",
         "rarc_match": "partial",
         "payer_rule_match": "yes/no"
+      },
+      "categorization_summary": {
+        "total_claims": number,
+        "denied_claims": number,
+        "partial_denials": number,
+        "top_denial_groups": ["Bundling/NCCI","Medical Necessity"],
+        "aggregate_denial_percent": float,
+        "categories": [
+          {
+            "group_code": "CO",
+            "carc_code": "97",
+            "rarc_codes": ["M80"],
+            "denial_group": "Bundling/NCCI",
+            "short_reason": "Service included in another procedure",
+            "severity": "High",
+            "appeal_hint": "Submit modifier or documentation per NCCI",
+            "suggested_actions": [
+              "Check for bundled services",
+              "Use appropriate modifier (59 or X-series)"
+            ],
+            "policy_refs": ["linked_policy_ids"],
+            "frequency": number,
+            "denial_percent": float
+          }
+        ]
       }
     }
   ]
